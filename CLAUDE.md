@@ -11,9 +11,9 @@ Turns old laptops and PCs into Ubuntu Server home servers from one USB stick bui
 ## Layout
 - `setup.ps1`: the wizard; asks settings, writes server.local.env, starts build-usb.ps1
 - `build-usb.ps1`: downloads and checks the ISO, partitions the stick, copies files
-- `lib/render.ps1`: config reading, checks, templates, password hash, time zone, disk reset
+- `lib/render.ps1`: config reading, checks, templates, password hash, Wi-Fi key and SSID, time zone, disk reset
 - `autoinstall.template.yaml`: Ubuntu autoinstall config with {{KEY}} placeholders
-- `server-setup/`: runs on the server: firstboot.sh, make-hostname.sh, the systemd unit
+- `server-setup/`: runs on the server: firstboot.sh, make-hostname.sh, install-wifi.sh, wifi.yaml.template, the systemd unit
 - `tests/render.Tests.ps1`: all tests (PowerShell, plus bash scripts via Git Bash)
 
 ## Conventions

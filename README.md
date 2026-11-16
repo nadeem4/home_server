@@ -59,8 +59,7 @@ flowchart LR
 - The machine to turn into a server (see [Which machines work](#which-machines-work)).
   **Its whole internal disk is erased.**
 - A USB stick of 16 GB or more. **It is erased too.**
-- A wired network connection. Machines without an Ethernet port need a USB-Ethernet adapter
-  (Realtek RTL8153 or ASIX chips work with no setup). Wi-Fi is not set up.
+- A network connection: Ethernet, Wi-Fi, or both (see [Wi-Fi or Ethernet](#wi-fi-or-ethernet)).
 - A Windows PC to build the USB stick, with [Git for Windows](https://git-scm.com/) (for `openssl`).
 - A free [Tailscale](https://tailscale.com) account, with the Tailscale app on the devices you
   want to reach the server from.
@@ -73,8 +72,8 @@ The quick way: plug in the USB stick, open PowerShell in this folder and run
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
 
-It asks for a user name, time zone, battery limits, an optional Tailscale key and
-your password. Each question has a default, so you can press Enter; the time zone default is
+It asks for a user name, time zone, battery limits, an optional Tailscale key,
+your password and an optional Wi-Fi network (with its password). Each question has a default, so you can press Enter; the time zone default is
 detected from your PC. It hashes the password with OpenSSL (the password itself is never saved) and
 writes `server.local.env`. Then it lists your USB disks, and opens an Administrator window that
 runs `build-usb.ps1` on the one you pick. Windows asks you to allow that window.
@@ -85,6 +84,9 @@ The same steps by hand:
    This file is gitignored and stays on your PC.
    - `PASSWORD_HASH`: in Git Bash, run `openssl passwd -6`, type your password twice, and paste
      the output (starts with `$6$`). This password is for the console and Cockpit.
+   - `WIFI_SSID` and `WIFI_PSK` (optional, uncomment to use): the network name and its WPA2 key,
+     which `setup.ps1` makes for you. By hand, the key is 64 hex characters from PBKDF2-HMAC-SHA1
+     of the password with the network name as salt (the example file has the details).
    - `TAILSCALE_AUTHKEY` (optional): create a **reusable** key at
      [Tailscale admin → Settings → Keys](https://login.tailscale.com/admin/settings/keys).
      With it, each server joins your network on its own. Without it, you run one command after
@@ -105,7 +107,7 @@ The same steps by hand:
 ## Install on the machine
 
 1. Back up anything on the machine you want to keep.
-2. Plug in the USB stick and the Ethernet cable, and connect the charger.
+2. Plug in the USB stick, the Ethernet cable if you use one, and connect the charger.
 3. Power on and press the boot menu key (table below), then pick the USB stick.
 4. **Try or Install Ubuntu Server** is picked by itself after a few seconds. When it asks
    `Continue with autoinstall? (yes|no)`, type `yes`.
@@ -138,6 +140,21 @@ option, turn it on so the server starts by itself after a power cut.
 - In the [Tailscale admin console](https://login.tailscale.com/admin/machines), open the server's
   menu and choose **Disable key expiry**, so it does not drop off your network after 180 days.
 - In your router, give the server a **DHCP reservation** so its home IP address never changes.
+
+## Wi-Fi or Ethernet
+
+`setup.ps1` asks for a Wi-Fi network (it suggests the one your PC is on) and its password. Press Enter
+to skip Wi-Fi. The server keeps only the network name and a key made from the password, never the
+password itself.
+
+- Both Ethernet and Wi-Fi are set up. Whichever is connected works, and the cable is preferred when
+  both are.
+- The install itself needs no network. First-boot setup waits up to 5 minutes for internet, so
+  Wi-Fi has time to connect.
+- To switch Wi-Fi off later: `sudo rm /etc/netplan/60-wifi.yaml && sudo netplan apply`.
+- WPA3-only networks are not supported. WPA2 and WPA2/WPA3 mixed networks work.
+- Wi-Fi gives the server a different IP address from Ethernet. Give each a **DHCP reservation**
+  in your router if you need fixed addresses.
 
 ## Server names
 
@@ -186,6 +203,8 @@ tailscale status                  # devices on your network
 | `autoinstall.template.yaml` | Ubuntu autoinstall config, with placeholders for your values. |
 | `server-setup/firstboot.sh` | The one-time setup that runs on the server's first boot. |
 | `server-setup/make-hostname.sh` | Works out the server's name from its model and serial number. |
+| `server-setup/install-wifi.sh` | Runs during the install: sets up Wi-Fi on the server if the stick has a Wi-Fi file. |
+| `server-setup/wifi.yaml.template` | Netplan Wi-Fi config, filled in by `build-usb.ps1` only when Wi-Fi is set up. |
 | `server-setup/server-firstboot.service` | Runs `firstboot.sh` once, after the network is up. |
 | `server-setup/server.env.template` | Values passed to `firstboot.sh`. Deleted from the server after use. |
 | `server.local.env.example` | Copy to `server.local.env` (gitignored) and fill in. |
@@ -206,6 +225,9 @@ tailscale status                  # devices on your network
   it on.
 - **The installer asks questions instead of installing:** it did not find `autoinstall.yaml`.
   Rebuild the stick with `build-usb.ps1`.
+- **First-boot log says "No internet: plug in Ethernet or check the Wi-Fi settings":** the server
+  could not resolve the Ubuntu archive in 5 minutes. Plug in Ethernet, or check the Wi-Fi name and
+  password (rebuild the stick if they were wrong). It tries again on the next boot.
 - **First-boot setup failed:** read `/var/log/server-firstboot.log`, fix the cause, then run
   `sudo /opt/server-setup/firstboot.sh` again. It also runs again on every boot until it finishes.
   Once it has finished, it deletes its settings file, and running it again does nothing.
