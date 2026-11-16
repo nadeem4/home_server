@@ -149,6 +149,35 @@ Describe 'Wi-Fi config' {
     }
 }
 
+Describe 'Wi-Fi input checks' {
+    It 'Test-WifiSsid accepts 1-32 UTF-8 bytes only' {
+        Test-WifiSsid 'HomeNet' | Should Be $true
+        Test-WifiSsid ('a' * 32) | Should Be $true
+        Test-WifiSsid ('a' * 33) | Should Be $false
+        Test-WifiSsid ('ç½‘' * 11) | Should Be $false   # 33 bytes
+        Test-WifiSsid '' | Should Be $false
+    }
+
+    It 'Test-WifiPassword accepts 8-63 printable ASCII characters only' {
+        Test-WifiPassword 'pass word!' | Should Be $true
+        Test-WifiPassword 'short' | Should Be $false
+        Test-WifiPassword ('x' * 64) | Should Be $false
+        Test-WifiPassword 'pÃ¤ssword1' | Should Be $false
+        Test-WifiPassword "tab`there1" | Should Be $false
+    }
+
+    It 'env file round-trips non-ASCII values as UTF-8' {
+        $c = New-ValidConfig; $c.WIFI_SSID = 'CafÃ©-ç½‘ç»œ'; $c.WIFI_PSK = 'a' * 64
+        $path = Join-Path $TestDrive 'utf8.env'
+        Set-Content -LiteralPath $path -Value (Format-EnvFile $c) -Encoding UTF8
+        (Read-EnvFile $path).WIFI_SSID | Should Be 'CafÃ©-ç½‘ç»œ'
+    }
+
+    It 'setup.ps1 saves the env file as UTF-8' {
+        Get-Content -Raw "$root\setup.ps1" | Should Match 'Set-Content[^\r\n]*-Encoding UTF8'
+    }
+}
+
 Describe 'ConvertTo-WifiPsk' {
     It 'matches the IEEE 802.11i test vector' {
         ConvertTo-WifiPsk 'IEEE' 'password' | Should Be 'f42c6fc52df0ebef9ebb4b90b38a5f902e83fe1b135a70e23aed762e9710a12e'
@@ -267,10 +296,28 @@ Describe 'Repo files' {
 
     It 'Wi-Fi template renders fully and holds the SSID and key' {
         $c = New-ValidConfig; $c.WIFI_SSID = 'HomeNet'; $c.WIFI_PSK = 'a' * 64
-        $out = Expand-Template (Get-Content -Raw "$root\server-setup\wifi.yaml.template") $c
-        $out | Should Match 'HomeNet'
+        $out = Expand-WifiTemplate (Get-Content -Raw "$root\server-setup\wifi.yaml.template") $c
+        $out | Should Match "'HomeNet':"
         $out | Should Match ('a' * 64)
         $out | Should Match 'dhcp4: true'
+        $out | Should Match 'optional: true'
+        $out | Should Not Match '\{\{'
+    }
+
+    It 'Wi-Fi template keeps awkward SSIDs exactly, in single quotes' {
+        $tpl = Get-Content -Raw "$root\server-setup\wifi.yaml.template"
+        $cases = @{
+            "Bob's Wi-Fi" = "'Bob''s Wi-Fi':"
+            'a\b'         = "'a\b':"
+            'x # y'       = "'x # y':"
+            'a: b'        = "'a: b':"
+            ' lead'       = "' lead':"
+            '"quoted"'    = "'""quoted""':"
+        }
+        foreach ($ssid in $cases.Keys) {
+            $c = New-ValidConfig; $c.WIFI_SSID = $ssid; $c.WIFI_PSK = 'a' * 64
+            (Expand-WifiTemplate $tpl $c).Contains("        $($cases[$ssid])") | Should Be $true
+        }
     }
 
     It 'autoinstall installs wpasupplicant and runs install-wifi.sh' {
@@ -317,7 +364,12 @@ Describe 'Repo files' {
         New-Item -ItemType Directory -Force $dir | Out-Null
         Write-LfFile "$dir/server.env" "SERVER_USER='x'`n"
         $script = "$root\server-setup\firstboot.sh" -replace '\\', '/'
-        $out = & $bash -c "SETUP_DIR='$dir' NET_CHECK_HOST='no-such-host.invalid' NET_WAIT_SECONDS=0 bash '$script'"
+        # A stub getent that fails (exit 2 = name not found) comes first on PATH.
+        $stub = (Join-Path $TestDrive 'stub') -replace '\\', '/'
+        New-Item -ItemType Directory -Force $stub | Out-Null
+        Write-LfFile "$stub/getent" "#!/bin/sh`nexit 2`n"
+        $stubU = '/' + $stub.Substring(0, 1).ToLower() + $stub.Substring(2)   # C:/x -> /c/x for Git Bash
+        $out = & $bash -c "export PATH='$stubU':`$PATH; SETUP_DIR='$dir' NET_CHECK_HOST='no-such-host.invalid' NET_WAIT_SECONDS=0 bash '$script'"
         $LASTEXITCODE | Should Be 1
         ($out -join ' ') | Should Match 'No internet: plug in Ethernet or check the Wi-Fi settings'
     }

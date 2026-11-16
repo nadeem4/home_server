@@ -152,6 +152,9 @@ password itself.
 - The install itself needs no network. First-boot setup waits up to 5 minutes for internet, so
   Wi-Fi has time to connect.
 - To switch Wi-Fi off later: `sudo rm /etc/netplan/60-wifi.yaml && sudo netplan apply`.
+- The Wi-Fi name can be up to 32 bytes and the password 8-63 printable ASCII characters (no accents).
+  A name with leading or trailing spaces is not supported. If the suggested name looks wrong (accents,
+  non-Latin letters), type it yourself.
 - WPA3-only networks are not supported. WPA2 and WPA2/WPA3 mixed networks work.
 - Wi-Fi gives the server a different IP address from Ethernet. Give each a **DHCP reservation**
   in your router if you need fixed addresses.

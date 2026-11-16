@@ -6,10 +6,11 @@ $RequiredKeys = @(
 )
 
 # Reads KEY=VALUE lines. Blank lines and lines starting with # are skipped.
-# Values are taken literally (no quotes, no $ expansion).
+# Values are taken literally (no quotes, no $ expansion), read as UTF-8, and trimmed
+# (so a Wi-Fi name with leading or trailing spaces is not supported).
 function Read-EnvFile([string]$Path) {
     $values = @{}
-    foreach ($line in Get-Content -LiteralPath $Path) {
+    foreach ($line in Get-Content -LiteralPath $Path -Encoding UTF8) {
         $t = $line.Trim()
         if ($t -eq '' -or $t.StartsWith('#')) { continue }
         $i = $t.IndexOf('=')
@@ -57,10 +58,27 @@ function Test-ServerConfig([hashtable]$Values) {
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 
+# A Wi-Fi name is 1-32 bytes (UTF-8). A WPA2 password is 8-63 printable ASCII characters.
+function Test-WifiSsid([string]$Ssid) {
+    $n = [Text.Encoding]::UTF8.GetByteCount($Ssid)
+    $n -ge 1 -and $n -le 32
+}
+function Test-WifiPassword([string]$Password) {
+    $Password -cmatch '^[\x20-\x7E]{8,63}$'
+}
+
+# Fills the Wi-Fi netplan template. The SSID goes in YAML single quotes (' doubled), so
+# any characters work; Expand-Template is not used because it rejects quotes.
+function Expand-WifiTemplate([string]$Template, [hashtable]$Values) {
+    $ssid = $Values.WIFI_SSID
+    if ($ssid -match "[\r\n]") { throw 'WIFI_SSID must not contain newlines' }
+    $Template.Replace('{{WIFI_SSID}}', $ssid.Replace("'", "''")).Replace('{{WIFI_PSK}}', $Values.WIFI_PSK)
+}
+
 # Turns a Wi-Fi password into the 64-hex WPA2 key (PBKDF2-HMAC-SHA1, SSID as salt, 4096 rounds).
 # The server gets only this key, never the password.
 function ConvertTo-WifiPsk([string]$Ssid, [string]$Password) {
-    if ($Password.Length -lt 8 -or $Password.Length -gt 63) { throw 'Wi-Fi password must be 8-63 characters.' }
+    if (-not (Test-WifiPassword $Password)) { throw 'Wi-Fi password must be 8-63 printable ASCII characters.' }
     # Done by hand: .NET's Rfc2898DeriveBytes refuses salts under 8 bytes, but SSIDs can be shorter.
     $hmac = New-Object Security.Cryptography.HMACSHA1 (, [Text.Encoding]::UTF8.GetBytes($Password))
     $salt = [Text.Encoding]::UTF8.GetBytes($Ssid)

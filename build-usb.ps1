@@ -91,7 +91,7 @@ foreach ($f in 'firstboot.sh', 'make-hostname.sh', 'install-wifi.sh', 'server-fi
 }
 # Wi-Fi: only when setup.ps1 stored a network. install-wifi.sh installs this on the server.
 if ($values.WIFI_SSID) {
-    Write-LfFile "$usb\server-setup\60-wifi.yaml" (Expand-Template (Get-Content -Raw "$PSScriptRoot\server-setup\wifi.yaml.template") $values)
+    Write-LfFile "$usb\server-setup\60-wifi.yaml" (Expand-WifiTemplate (Get-Content -Raw "$PSScriptRoot\server-setup\wifi.yaml.template") $values)
 }
 
 Write-Host "Done. The USB stick is ready: plug it into the machine, open its boot menu (F12 on most) and pick it." -ForegroundColor Green

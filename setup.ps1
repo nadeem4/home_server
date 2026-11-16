@@ -27,14 +27,14 @@ function Read-Password {
     }
 }
 
-# Asks twice for the Wi-Fi password (hidden), like Read-Password. Must be 8-63 characters.
+# Asks twice for the Wi-Fi password (hidden), like Read-Password. Must be 8-63 printable ASCII characters.
 function Read-WifiPassword {
     while ($true) {
         $a = Read-Host 'Wi-Fi password' -AsSecureString
         $b = Read-Host 'Type it again' -AsSecureString
         $pa = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($a))
         $pb = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($b))
-        if ($pa.Length -lt 8 -or $pa.Length -gt 63) { Write-Host 'Wi-Fi password must be 8-63 characters.' -ForegroundColor Yellow; continue }
+        if (-not (Test-WifiPassword $pa)) { Write-Host 'Wi-Fi password must be 8-63 printable ASCII characters (letters, digits, symbols; no accents).' -ForegroundColor Yellow; continue }
         if ($pa -ne $pb) { Write-Host 'The passwords did not match. Try again.' -ForegroundColor Yellow; continue }
         return $pa
     }
@@ -61,15 +61,19 @@ if ($create) {
     # Wi-Fi (optional): the server keeps only the network name and a derived key, not the password.
     $detected = Get-LocalWifiSsid
     $prompt = if ($detected) { "Wi-Fi network (Enter for '$detected', - to skip)" } else { 'Wi-Fi network (Enter to skip)' }
-    $ssid = (Read-Host $prompt).Trim()
-    if (-not $ssid) { $ssid = $detected }
+    while ($true) {
+        $ssid = (Read-Host $prompt).Trim()
+        if (-not $ssid) { $ssid = $detected }
+        if (-not $ssid -or $ssid -eq '-' -or (Test-WifiSsid $ssid)) { break }
+        Write-Host 'A Wi-Fi name is at most 32 bytes. Try again.' -ForegroundColor Yellow
+    }
     if ($ssid -and $ssid -ne '-') {
         $values.WIFI_SSID = $ssid
         $values.WIFI_PSK = ConvertTo-WifiPsk $ssid (Read-WifiPassword)
     }
 
     Test-ServerConfig $values
-    Set-Content -LiteralPath $EnvFile -Value (Format-EnvFile $values)
+    Set-Content -LiteralPath $EnvFile -Value (Format-EnvFile $values) -Encoding UTF8
     Write-Host "Saved $EnvFile (your password is stored only as a hash)." -ForegroundColor Green
 } else {
     Test-ServerConfig (Read-EnvFile $EnvFile)

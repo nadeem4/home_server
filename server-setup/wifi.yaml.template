@@ -6,9 +6,11 @@ network:
   wifis:
     __WIFI_IFACE__:
       dhcp4: true
+      # Do not make boot wait for Wi-Fi when the network is out of range.
+      optional: true
       # Wired (en*) is preferred when both are connected: lower metric wins.
       dhcp4-overrides:
         route-metric: 600
       access-points:
-        "{{WIFI_SSID}}":
+        '{{WIFI_SSID}}':
           password: "{{WIFI_PSK}}"
