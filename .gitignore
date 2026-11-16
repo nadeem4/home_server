@@ -1,0 +1,3 @@
+# Your real values: password hash and Tailscale key. Never commit.
+server.local.env
+*.iso

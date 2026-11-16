@@ -1,0 +1,15 @@
+[Unit]
+Description=One-time home server setup (first boot)
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=!/opt/server-setup/.done
+
+[Service]
+Type=oneshot
+ExecStart=/opt/server-setup/firstboot.sh
+StandardOutput=append:/var/log/server-firstboot.log
+StandardError=append:/var/log/server-firstboot.log
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

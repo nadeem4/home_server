@@ -1,0 +1,37 @@
+#cloud-config
+# Ubuntu Server autoinstall. build-usb.ps1 fills the double-brace placeholders from
+# server.local.env and writes the result to the USB stick as autoinstall.yaml.
+# WARNING: this erases the whole internal disk of the machine it installs on.
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  timezone: "{{TIMEZONE}}"
+  identity:
+    # Temporary: on first boot the server renames itself from its model and serial number.
+    hostname: "ubuntu-server"
+    username: "{{SERVER_USER}}"
+    password: "{{PASSWORD_HASH}}"
+  ssh:
+    install-server: true
+    allow-pw: false
+  network:
+    version: 2
+    ethernets:
+      wired:
+        match:
+          name: "en*"
+        dhcp4: true
+  storage:
+    layout:
+      name: lvm
+      sizing-policy: all
+  # Copy the first-boot setup onto the new system. It runs once, on first boot.
+  late-commands:
+    - mkdir -p /target/opt/server-setup
+    - cp /cdrom/server-setup/firstboot.sh /cdrom/server-setup/make-hostname.sh /cdrom/server-setup/server.env /target/opt/server-setup/
+    - chmod 700 /target/opt/server-setup/firstboot.sh /target/opt/server-setup/make-hostname.sh
+    - chmod 600 /target/opt/server-setup/server.env
+    - cp /cdrom/server-setup/server-firstboot.service /target/etc/systemd/system/
+    - curtin in-target -- systemctl enable server-firstboot.service
