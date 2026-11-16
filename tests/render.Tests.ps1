@@ -111,6 +111,82 @@ Describe 'ConvertTo-PasswordHash' {
     }
 }
 
+Describe 'Wi-Fi config' {
+    $psk = 'a' * 64
+
+    It 'still accepts a config without Wi-Fi keys (Wi-Fi off)' {
+        { Test-ServerConfig (New-ValidConfig) } | Should Not Throw
+    }
+
+    It 'accepts a config with an SSID and a 64-hex key' {
+        $c = New-ValidConfig; $c.WIFI_SSID = 'HomeNet'; $c.WIFI_PSK = $psk
+        { Test-ServerConfig $c } | Should Not Throw
+    }
+
+    It 'rejects an SSID without a valid key' {
+        $c = New-ValidConfig; $c.WIFI_SSID = 'HomeNet'
+        { Test-ServerConfig $c } | Should Throw 'WIFI_PSK'
+        $c.WIFI_PSK = 'tooshort'
+        { Test-ServerConfig $c } | Should Throw 'WIFI_PSK'
+    }
+
+    It 'Format-EnvFile writes the Wi-Fi keys and they read back' {
+        $c = New-ValidConfig; $c.WIFI_SSID = 'HomeNet'; $c.WIFI_PSK = $psk
+        $path = Join-Path $TestDrive 'wifi.env'
+        Set-Content -LiteralPath $path -Value (Format-EnvFile $c)
+        $back = Read-EnvFile $path
+        $back.WIFI_SSID | Should Be 'HomeNet'
+        $back.WIFI_PSK | Should Be $psk
+    }
+
+    It 'Format-EnvFile leaves the Wi-Fi keys out when Wi-Fi is off' {
+        (Format-EnvFile (New-ValidConfig)) -join "`n" | Should Not Match 'WIFI'
+    }
+
+    It 'example env file mentions the Wi-Fi keys' {
+        Get-Content -Raw "$root\server.local.env.example" | Should Match '# WIFI_SSID='
+        Get-Content -Raw "$root\server.local.env.example" | Should Match '# WIFI_PSK='
+    }
+}
+
+Describe 'ConvertTo-WifiPsk' {
+    It 'matches the IEEE 802.11i test vector' {
+        ConvertTo-WifiPsk 'IEEE' 'password' | Should Be 'f42c6fc52df0ebef9ebb4b90b38a5f902e83fe1b135a70e23aed762e9710a12e'
+    }
+
+    It 'rejects passwords shorter than 8 or longer than 63 characters' {
+        { ConvertTo-WifiPsk 'IEEE' 'short' } | Should Throw '8-63'
+        { ConvertTo-WifiPsk 'IEEE' ('x' * 64) } | Should Throw '8-63'
+    }
+
+    It 'accepts 8 and 63 characters' {
+        { ConvertTo-WifiPsk 'IEEE' ('x' * 8) } | Should Not Throw
+        { ConvertTo-WifiPsk 'IEEE' ('x' * 63) } | Should Not Throw
+    }
+}
+
+Describe 'Get-WifiSsidFromNetsh' {
+    It 'returns the SSID, not the BSSID' {
+        $text = @(
+            '    Name                   : Wi-Fi',
+            '    State                  : connected',
+            '    SSID                   : My Home Net',
+            '    BSSID                  : aa:bb:cc:dd:ee:ff',
+            '    Signal                 : 90%'
+        )
+        Get-WifiSsidFromNetsh $text | Should Be 'My Home Net'
+    }
+
+    It 'returns an empty string when disconnected' {
+        $text = @('    Name                   : Wi-Fi', '    State                  : disconnected')
+        Get-WifiSsidFromNetsh $text | Should Be ''
+    }
+
+    It 'returns an empty string when there is no Wi-Fi adapter' {
+        Get-WifiSsidFromNetsh @('There is no wireless interface on the system.') | Should Be ''
+    }
+}
+
 Describe 'Get-LocalIanaTimeZone' {
     It 'detects this PC''s time zone as an IANA name that maps back to the same Windows zone' {
         $iana = Get-LocalIanaTimeZone
@@ -189,8 +265,29 @@ Describe 'Repo files' {
         foreach ($key in (New-ValidConfig).Keys) { $example.ContainsKey($key) | Should Be $true }
     }
 
+    It 'Wi-Fi template renders fully and holds the SSID and key' {
+        $c = New-ValidConfig; $c.WIFI_SSID = 'HomeNet'; $c.WIFI_PSK = 'a' * 64
+        $out = Expand-Template (Get-Content -Raw "$root\server-setup\wifi.yaml.template") $c
+        $out | Should Match 'HomeNet'
+        $out | Should Match ('a' * 64)
+        $out | Should Match 'dhcp4: true'
+    }
+
+    It 'autoinstall installs wpasupplicant and runs install-wifi.sh' {
+        $t = Get-Content -Raw "$root\autoinstall.template.yaml"
+        $t | Should Match 'wpasupplicant'
+        $t | Should Match 'install-wifi\.sh'
+    }
+
+    It 'build-usb.ps1 writes the Wi-Fi file only when WIFI_SSID is set and copies install-wifi.sh' {
+        $b = Get-Content -Raw "$root\build-usb.ps1"
+        $b | Should Match 'WIFI_SSID'
+        $b | Should Match '60-wifi\.yaml'
+        $b | Should Match 'install-wifi\.sh'
+    }
+
     It 'Linux files use LF line endings' {
-        foreach ($f in 'server-setup\firstboot.sh', 'server-setup\make-hostname.sh', 'server-setup\server-firstboot.service') {
+        foreach ($f in 'server-setup\firstboot.sh', 'server-setup\make-hostname.sh', 'server-setup\install-wifi.sh', 'server-setup\wifi.yaml.template', 'server-setup\server-firstboot.service') {
             [IO.File]::ReadAllText("$root\$f") | Should Not Match "`r"
         }
     }
@@ -210,6 +307,19 @@ Describe 'Repo files' {
         $LASTEXITCODE | Should Be 0
         & $bash -n "$root\server-setup\make-hostname.sh"
         $LASTEXITCODE | Should Be 0
+        & $bash -n "$root\server-setup\install-wifi.sh"
+        $LASTEXITCODE | Should Be 0
+    }
+
+    It 'firstboot.sh stops with a clear message when there is no internet' {
+        $bash = 'C:\Program Files\Git\bin\bash.exe'
+        $dir = (Join-Path $TestDrive 'nonet') -replace '\\', '/'
+        New-Item -ItemType Directory -Force $dir | Out-Null
+        Write-LfFile "$dir/server.env" "SERVER_USER='x'`n"
+        $script = "$root\server-setup\firstboot.sh" -replace '\\', '/'
+        $out = & $bash -c "SETUP_DIR='$dir' NET_CHECK_HOST='no-such-host.invalid' NET_WAIT_SECONDS=0 bash '$script'"
+        $LASTEXITCODE | Should Be 1
+        ($out -join ' ') | Should Match 'No internet: plug in Ethernet or check the Wi-Fi settings'
     }
 
     It 'firstboot.sh exits cleanly when setup already ran (no server.env)' {
@@ -220,6 +330,39 @@ Describe 'Repo files' {
         $out = & $bash -c "SETUP_DIR='$dir' bash '$script'"
         $LASTEXITCODE | Should Be 0
         ($out -join ' ') | Should Match 'already'
+    }
+}
+
+Describe 'install-wifi.sh' {
+    # Runs the script against fake /cdrom, /sys/class/net and /target folders.
+    function Invoke-InstallWifi([bool]$WithFile, [string[]]$Wireless) {
+        $dir = Join-Path $TestDrive ([guid]::NewGuid())
+        $d = $dir -replace '\\', '/'
+        New-Item -ItemType Directory "$dir\cdrom", "$dir\net\eth0", "$dir\target\etc\netplan" | Out-Null
+        foreach ($i in $Wireless) { New-Item -ItemType Directory "$dir\net\$i\wireless" | Out-Null }
+        if ($WithFile) { Write-LfFile "$dir\cdrom\60-wifi.yaml" "iface: __WIFI_IFACE__`n" }
+        $script = "$root\server-setup\install-wifi.sh" -replace '\\', '/'
+        $out = & 'C:\Program Files\Git\bin\bash.exe' -c "WIFI_SRC='$d/cdrom/60-wifi.yaml' NET_DIR='$d/net' WIFI_DEST='$d/target/etc/netplan/60-wifi.yaml' bash '$script'"
+        [pscustomobject]@{ Code = $LASTEXITCODE; Out = "$out"; Dest = "$dir\target\etc\netplan\60-wifi.yaml" }
+    }
+
+    It 'does nothing when the stick has no Wi-Fi file' {
+        $r = Invoke-InstallWifi $false @('wlan0')
+        $r.Code | Should Be 0
+        Test-Path $r.Dest | Should Be $false
+    }
+
+    It 'writes the netplan file with the wireless interface name' {
+        $r = Invoke-InstallWifi $true @('wlp2s0')
+        $r.Code | Should Be 0
+        (Get-Content -Raw $r.Dest).Trim() | Should Be 'iface: wlp2s0'
+    }
+
+    It 'prints a note and exits 0 when there is no wireless interface' {
+        $r = Invoke-InstallWifi $true @()
+        $r.Code | Should Be 0
+        $r.Out | Should Match 'No Wi-Fi'
+        Test-Path $r.Dest | Should Be $false
     }
 }
 

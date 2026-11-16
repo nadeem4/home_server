@@ -50,7 +50,44 @@ function Test-ServerConfig([hashtable]$Values) {
         $start -lt 0 -or $stop -gt 100 -or $start -ge $stop) {
         $problems += 'BATTERY_START and BATTERY_STOP must be 0-100 with START below STOP (e.g. 60 and 80)'
     }
+    # Wi-Fi is optional (older env files have none), but an SSID needs its key.
+    if ($Values.WIFI_SSID -and $Values.WIFI_PSK -notmatch '^[0-9a-f]{64}$') {
+        $problems += 'WIFI_PSK must be 64 lowercase hex characters when WIFI_SSID is set (setup.ps1 makes it)'
+    }
     if ($problems.Count) { throw ($problems -join '; ') }
+}
+
+# Turns a Wi-Fi password into the 64-hex WPA2 key (PBKDF2-HMAC-SHA1, SSID as salt, 4096 rounds).
+# The server gets only this key, never the password.
+function ConvertTo-WifiPsk([string]$Ssid, [string]$Password) {
+    if ($Password.Length -lt 8 -or $Password.Length -gt 63) { throw 'Wi-Fi password must be 8-63 characters.' }
+    # Done by hand: .NET's Rfc2898DeriveBytes refuses salts under 8 bytes, but SSIDs can be shorter.
+    $hmac = New-Object Security.Cryptography.HMACSHA1 (, [Text.Encoding]::UTF8.GetBytes($Password))
+    $salt = [Text.Encoding]::UTF8.GetBytes($Ssid)
+    $key = foreach ($block in 1, 2) {
+        $u = $hmac.ComputeHash([byte[]]($salt + [byte[]](0, 0, 0, $block)))
+        $t = [byte[]]$u.Clone()
+        for ($i = 1; $i -lt 4096; $i++) {
+            $u = $hmac.ComputeHash($u)
+            for ($j = 0; $j -lt 20; $j++) { $t[$j] = $t[$j] -bxor $u[$j] }
+        }
+        $t
+    }
+    (($key | Select-Object -First 32 | ForEach-Object { $_.ToString('x2') }) -join '')
+}
+
+# Finds the connected network in `netsh wlan show interfaces` text ('' if none).
+# Matches the "SSID" line only, not "BSSID".
+function Get-WifiSsidFromNetsh([string[]]$Lines) {
+    foreach ($line in $Lines) {
+        if ($line -match '^\s*SSID\s*:\s*(.+?)\s*$') { return $Matches[1] }
+    }
+    ''
+}
+
+# The Wi-Fi network this PC is connected to ('' if none or no Wi-Fi adapter).
+function Get-LocalWifiSsid {
+    Get-WifiSsidFromNetsh @(netsh wlan show interfaces 2>$null)
 }
 
 # Hashes a password with OpenSSL (SHA-512 crypt, random salt), as Ubuntu expects.
@@ -131,6 +168,7 @@ function Reset-UsbDisk([int]$DiskNumber) {
 function Format-EnvFile([hashtable]$Values) {
     $lines = @('# Created by setup.ps1. Never commit this file.')
     foreach ($k in $RequiredKeys) { $lines += "$k=$($Values[$k])" }
+    if ($Values.WIFI_SSID) { $lines += "WIFI_SSID=$($Values.WIFI_SSID)"; $lines += "WIFI_PSK=$($Values.WIFI_PSK)" }
     $lines
 }
 
