@@ -27,6 +27,19 @@ function Read-Password {
     }
 }
 
+# Asks twice for the Wi-Fi password (hidden), like Read-Password. Must be 8-63 characters.
+function Read-WifiPassword {
+    while ($true) {
+        $a = Read-Host 'Wi-Fi password' -AsSecureString
+        $b = Read-Host 'Type it again' -AsSecureString
+        $pa = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($a))
+        $pb = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($b))
+        if ($pa.Length -lt 8 -or $pa.Length -gt 63) { Write-Host 'Wi-Fi password must be 8-63 characters.' -ForegroundColor Yellow; continue }
+        if ($pa -ne $pb) { Write-Host 'The passwords did not match. Try again.' -ForegroundColor Yellow; continue }
+        return $pa
+    }
+}
+
 Write-Host "`n== Home server setup ==`n"
 
 # 1. Create server.local.env (or keep the existing one).
@@ -45,6 +58,15 @@ if ($create) {
     Write-Host 'With it, the server joins your Tailscale network by itself. Press Enter to skip.'
     $values.TAILSCALE_AUTHKEY = (Read-Host 'Tailscale auth key').Trim()
     $values.PASSWORD_HASH = ConvertTo-PasswordHash (Read-Password)
+    # Wi-Fi (optional): the server keeps only the network name and a derived key, not the password.
+    $detected = Get-LocalWifiSsid
+    $prompt = if ($detected) { "Wi-Fi network (Enter for '$detected', - to skip)" } else { 'Wi-Fi network (Enter to skip)' }
+    $ssid = (Read-Host $prompt).Trim()
+    if (-not $ssid) { $ssid = $detected }
+    if ($ssid -and $ssid -ne '-') {
+        $values.WIFI_SSID = $ssid
+        $values.WIFI_PSK = ConvertTo-WifiPsk $ssid (Read-WifiPassword)
+    }
 
     Test-ServerConfig $values
     Set-Content -LiteralPath $EnvFile -Value (Format-EnvFile $values)
