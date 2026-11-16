@@ -1,0 +1,16 @@
+# Filled by build-usb.ps1 and put on the stick as 60-wifi.yaml only when Wi-Fi is set up.
+# install-wifi.sh swaps __WIFI_IFACE__ for the laptop's wireless card and installs it
+# as /etc/netplan/60-wifi.yaml.
+network:
+  version: 2
+  wifis:
+    __WIFI_IFACE__:
+      dhcp4: true
+      # Do not make boot wait for Wi-Fi when the network is out of range.
+      optional: true
+      # Wired (en*) is preferred when both are connected: lower metric wins.
+      dhcp4-overrides:
+        route-metric: 600
+      access-points:
+        '{{WIFI_SSID}}':
+          password: "{{WIFI_PSK}}"

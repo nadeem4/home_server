@@ -6,10 +6,11 @@ $RequiredKeys = @(
 )
 
 # Reads KEY=VALUE lines. Blank lines and lines starting with # are skipped.
-# Values are taken literally (no quotes, no $ expansion).
+# Values are taken literally (no quotes, no $ expansion), read as UTF-8, and trimmed
+# (so a Wi-Fi name with leading or trailing spaces is not supported).
 function Read-EnvFile([string]$Path) {
     $values = @{}
-    foreach ($line in Get-Content -LiteralPath $Path) {
+    foreach ($line in Get-Content -LiteralPath $Path -Encoding UTF8) {
         $t = $line.Trim()
         if ($t -eq '' -or $t.StartsWith('#')) { continue }
         $i = $t.IndexOf('=')
@@ -50,7 +51,61 @@ function Test-ServerConfig([hashtable]$Values) {
         $start -lt 0 -or $stop -gt 100 -or $start -ge $stop) {
         $problems += 'BATTERY_START and BATTERY_STOP must be 0-100 with START below STOP (e.g. 60 and 80)'
     }
+    # Wi-Fi is optional (older env files have none), but an SSID needs its key.
+    if ($Values.WIFI_SSID -and $Values.WIFI_PSK -notmatch '^[0-9a-f]{64}$') {
+        $problems += 'WIFI_PSK must be 64 lowercase hex characters when WIFI_SSID is set (setup.ps1 makes it)'
+    }
     if ($problems.Count) { throw ($problems -join '; ') }
+}
+
+# A Wi-Fi name is 1-32 bytes (UTF-8). A WPA2 password is 8-63 printable ASCII characters.
+function Test-WifiSsid([string]$Ssid) {
+    $n = [Text.Encoding]::UTF8.GetByteCount($Ssid)
+    $n -ge 1 -and $n -le 32
+}
+function Test-WifiPassword([string]$Password) {
+    $Password -cmatch '^[\x20-\x7E]{8,63}$'
+}
+
+# Fills the Wi-Fi netplan template. The SSID goes in YAML single quotes (' doubled), so
+# any characters work; Expand-Template is not used because it rejects quotes.
+function Expand-WifiTemplate([string]$Template, [hashtable]$Values) {
+    $ssid = $Values.WIFI_SSID
+    if ($ssid -match "[\r\n]") { throw 'WIFI_SSID must not contain newlines' }
+    $Template.Replace('{{WIFI_SSID}}', $ssid.Replace("'", "''")).Replace('{{WIFI_PSK}}', $Values.WIFI_PSK)
+}
+
+# Turns a Wi-Fi password into the 64-hex WPA2 key (PBKDF2-HMAC-SHA1, SSID as salt, 4096 rounds).
+# The server gets only this key, never the password.
+function ConvertTo-WifiPsk([string]$Ssid, [string]$Password) {
+    if (-not (Test-WifiPassword $Password)) { throw 'Wi-Fi password must be 8-63 printable ASCII characters.' }
+    # Done by hand: .NET's Rfc2898DeriveBytes refuses salts under 8 bytes, but SSIDs can be shorter.
+    $hmac = New-Object Security.Cryptography.HMACSHA1 (, [Text.Encoding]::UTF8.GetBytes($Password))
+    $salt = [Text.Encoding]::UTF8.GetBytes($Ssid)
+    $key = foreach ($block in 1, 2) {
+        $u = $hmac.ComputeHash([byte[]]($salt + [byte[]](0, 0, 0, $block)))
+        $t = [byte[]]$u.Clone()
+        for ($i = 1; $i -lt 4096; $i++) {
+            $u = $hmac.ComputeHash($u)
+            for ($j = 0; $j -lt 20; $j++) { $t[$j] = $t[$j] -bxor $u[$j] }
+        }
+        $t
+    }
+    (($key | Select-Object -First 32 | ForEach-Object { $_.ToString('x2') }) -join '')
+}
+
+# Finds the connected network in `netsh wlan show interfaces` text ('' if none).
+# Matches the "SSID" line only, not "BSSID".
+function Get-WifiSsidFromNetsh([string[]]$Lines) {
+    foreach ($line in $Lines) {
+        if ($line -match '^\s*SSID\s*:\s*(.+?)\s*$') { return $Matches[1] }
+    }
+    ''
+}
+
+# The Wi-Fi network this PC is connected to ('' if none or no Wi-Fi adapter).
+function Get-LocalWifiSsid {
+    Get-WifiSsidFromNetsh @(netsh wlan show interfaces 2>$null)
 }
 
 # Hashes a password with OpenSSL (SHA-512 crypt, random salt), as Ubuntu expects.
@@ -131,6 +186,7 @@ function Reset-UsbDisk([int]$DiskNumber) {
 function Format-EnvFile([hashtable]$Values) {
     $lines = @('# Created by setup.ps1. Never commit this file.')
     foreach ($k in $RequiredKeys) { $lines += "$k=$($Values[$k])" }
+    if ($Values.WIFI_SSID) { $lines += "WIFI_SSID=$($Values.WIFI_SSID)"; $lines += "WIFI_PSK=$($Values.WIFI_PSK)" }
     $lines
 }
 

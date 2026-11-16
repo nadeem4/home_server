@@ -86,8 +86,12 @@ try {
 Write-LfFile "$usb\autoinstall.yaml" $autoinstall
 New-Item -ItemType Directory -Force "$usb\server-setup" | Out-Null
 Write-LfFile "$usb\server-setup\server.env" $serverEnv
-foreach ($f in 'firstboot.sh', 'make-hostname.sh', 'server-firstboot.service') {
+foreach ($f in 'firstboot.sh', 'make-hostname.sh', 'install-wifi.sh', 'server-firstboot.service') {
     Write-LfFile "$usb\server-setup\$f" (Get-Content -Raw "$PSScriptRoot\server-setup\$f")
+}
+# Wi-Fi: only when setup.ps1 stored a network. install-wifi.sh installs this on the server.
+if ($values.WIFI_SSID) {
+    Write-LfFile "$usb\server-setup\60-wifi.yaml" (Expand-WifiTemplate (Get-Content -Raw "$PSScriptRoot\server-setup\wifi.yaml.template") $values)
 }
 
 Write-Host "Done. The USB stick is ready: plug it into the machine, open its boot menu (F12 on most) and pick it." -ForegroundColor Green

@@ -23,6 +23,8 @@ autoinstall:
         match:
           name: "en*"
         dhcp4: true
+  # wpasupplicant (Wi-Fi) is in the ISO's package pool, so this works offline.
+  packages: [wpasupplicant]
   storage:
     layout:
       name: lvm
@@ -33,5 +35,6 @@ autoinstall:
     - cp /cdrom/server-setup/firstboot.sh /cdrom/server-setup/make-hostname.sh /cdrom/server-setup/server.env /target/opt/server-setup/
     - chmod 700 /target/opt/server-setup/firstboot.sh /target/opt/server-setup/make-hostname.sh
     - chmod 600 /target/opt/server-setup/server.env
+    - sh /cdrom/server-setup/install-wifi.sh
     - cp /cdrom/server-setup/server-firstboot.service /target/etc/systemd/system/
     - curtin in-target -- systemctl enable server-firstboot.service
