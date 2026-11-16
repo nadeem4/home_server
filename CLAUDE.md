@@ -1,6 +1,6 @@
 # home_server
 
-Turns old laptops into Ubuntu Server home servers from one USB stick built on Windows
+Turns old laptops and PCs into Ubuntu Server home servers from one USB stick built on Windows
 (autoinstall + first-boot setup: Docker, Tailscale, Cockpit, firewall, battery limit).
 
 ## Commands

@@ -90,4 +90,4 @@ foreach ($f in 'firstboot.sh', 'make-hostname.sh', 'server-firstboot.service') {
     Write-LfFile "$usb\server-setup\$f" (Get-Content -Raw "$PSScriptRoot\server-setup\$f")
 }
 
-Write-Host "Done. The USB stick is ready: plug it into the laptop, press F12 at power-on and pick it." -ForegroundColor Green
+Write-Host "Done. The USB stick is ready: plug it into the machine, open its boot menu (F12 on most) and pick it." -ForegroundColor Green
