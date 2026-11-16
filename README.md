@@ -34,7 +34,7 @@ The same stick sets up as many machines as you like.
 How you reach your servers:
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#ffffff','primaryTextColor':'#000000','primaryBorderColor':'#000000','lineColor':'#000000'}}}%%
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#ffffff','primaryTextColor':'#000000','primaryBorderColor':'#000000','lineColor':'#888888','edgeLabelBackground':'#ffffff'}}}%%
 flowchart LR
   PC[Your laptop] --> T((Tailscale))
   Phone[Your phone] --> T
@@ -46,7 +46,7 @@ flowchart LR
 How a machine becomes a server:
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#ffffff','primaryTextColor':'#000000','primaryBorderColor':'#000000','lineColor':'#000000'}}}%%
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#ffffff','primaryTextColor':'#000000','primaryBorderColor':'#000000','lineColor':'#888888','edgeLabelBackground':'#ffffff'}}}%%
 flowchart LR
   A[setup.ps1 on Windows] -->|builds| B[USB stick]
   B -->|boot, type yes| C[Ubuntu installs]
