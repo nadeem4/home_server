@@ -12,6 +12,19 @@ fi
 # shellcheck source=/dev/null
 source "$SETUP_DIR/server.env"
 export DEBIAN_FRONTEND=noninteractive
+
+# Wait for internet (Wi-Fi can take a minute to connect); the service retries on the next boot.
+NET_CHECK_HOST="${NET_CHECK_HOST:-archive.ubuntu.com}"
+NET_WAIT_SECONDS="${NET_WAIT_SECONDS:-300}"
+waited=0
+until getent hosts "$NET_CHECK_HOST" > /dev/null; do
+    if [ "$waited" -ge "$NET_WAIT_SECONDS" ]; then
+        echo "No internet: plug in Ethernet or check the Wi-Fi settings"
+        exit 1
+    fi
+    sleep 5
+    waited=$((waited + 5))
+done
 # Wait for the dpkg lock (apt-daily may hold it on first boot); keep existing config files.
 APT=(apt-get -y -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold)
 
